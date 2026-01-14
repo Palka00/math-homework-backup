@@ -1,0 +1,43 @@
+name: System Backup
+
+on:
+  schedule:
+    - cron: '0 */3 * * *' # Обновление каждые 3 часа
+  workflow_dispatch:      # Кнопка ручного запуска
+
+permissions:
+  contents: write
+
+jobs:
+  backup-log:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Fetch System Data
+        run: |
+          # Качаем подписку, используя твои реальные заголовки
+          # Сохраняем её под именем error_log.txt для маскировки
+          
+          curl -L -v \
+          -A "Throne/1.0.12 (Prefer ClashMeta Format)" \
+          -H "x-hwid: c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d" \
+          -H "x-device-os: Windows" \
+          -H "x-device-model: System Product Name/PRIME Z690-P WIFI D4" \
+          -H "x-ver-os: 10.0.26200" \
+          -H "accept-language: en-001,*" \
+          -o error_log.txt \
+          "${{ secrets.VPN_URL }}"
+
+          if [ ! -s error_log.txt ]; then
+             echo "Ошибка загрузки!"
+             exit 1
+          fi
+
+      - name: Save Backup
+        run: |
+          git config --global user.name 'Backup Bot'
+          git config --global user.email 'bot@backup.service'
+          git add error_log.txt
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update logs" && git push)
