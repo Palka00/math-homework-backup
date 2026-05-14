@@ -20,18 +20,19 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install requests
+        run: pip install requests
+
       - name: Fetch subscription
         env:
           SUB_URL: ${{ secrets.VPN_URL }}
         run: |
           python3 << 'PYEOF'
           import requests
-          import uuid
           import os
           import sys
           import urllib3
 
-          # Отключаем предупреждения SSL
           urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
           url = os.environ.get("SUB_URL", "").strip()
@@ -39,8 +40,8 @@ jobs:
               print("❌ Переменная VPN_URL не задана")
               sys.exit(1)
 
-          # Новый HWID и маскировка под Happ 3.2.0 (Pixel 7, Android 14)
-          hwid = "a3f1b8d2-7c4e-4e5b-9f2a-1d6c8e3f0a7b"  # свежий UUID4
+          # HWID и маскировка под Happ 3.2.0 (Pixel 7, Android 14)
+          hwid = "a3f1b8d2-7c4e-4e5b-9f2a-1d6c8e3f0a7b"
           headers = {
               "User-Agent": "Happ/3.2.0 (Linux; Android 14; Pixel 7 Build/UQ1A.231205.015)",
               "x-hwid": hwid,
@@ -54,25 +55,19 @@ jobs:
               "Connection": "keep-alive"
           }
 
-          # Пробуем запрос с агрессивной SSL-толерантностью
           try:
-              # Используем отдельный адаптер для принудительного IPv4 и игнора SSL
               session = requests.Session()
-              # Принудительно IPv4 (опционально)
               session.mount("https://", requests.adapters.HTTPAdapter(
                   pool_connections=1, pool_maxsize=1))
-              # Отключаем проверку сертификата и задаём таймауты
               resp = session.get(
                   url,
                   headers=headers,
-                  timeout=(10, 30),  # connect, read
-                  verify=False,      # игнорируем SSL ошибки
+                  timeout=(10, 30),
+                  verify=False,
                   allow_redirects=True
               )
 
               print(f"Статус: {resp.status_code}")
-              print(f"Заголовки ответа: {dict(resp.headers)}")
-
               if resp.status_code == 200:
                   with open("error_log.txt", "wb") as f:
                       f.write(resp.content)
@@ -80,12 +75,10 @@ jobs:
               else:
                   print(f"⚠️ Код {resp.status_code}, тело (первые 500 байт):")
                   print(resp.text[:500])
-                  # Если 403/404 – возможно, HWID забанен или URL изменился
                   sys.exit(1)
 
           except requests.exceptions.SSLError as e:
-              print(f"🔒 Ошибка SSL даже с verify=False: {e}")
-              # Можно попробовать HTTP вместо HTTPS
+              print(f"🔒 Ошибка SSL: {e}")
               if url.startswith("https://"):
                   print("Пробуем HTTP...")
                   url_http = url.replace("https://", "http://", 1)
@@ -95,7 +88,7 @@ jobs:
                           f.write(resp.content)
                       print("✅ Загружено через HTTP")
                   else:
-                      print(f"❌ HTTP тоже вернул {resp.status_code}")
+                      print(f"❌ HTTP код {resp.status_code}")
                       sys.exit(1)
               else:
                   sys.exit(1)
