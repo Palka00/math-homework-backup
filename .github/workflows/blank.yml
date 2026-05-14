@@ -2,8 +2,8 @@ name: System Backup
 
 on:
   schedule:
-    - cron: '0 */3 * * *' # Обновление каждые 3 часа
-  workflow_dispatch:      # Кнопка ручного запуска
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,24 +15,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
+      - name: Update CA certificates & tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ca-certificates curl
+
       - name: Fetch System Data
         run: |
-          # Качаем подписку, используя твои реальные заголовки
-          # Сохраняем её под именем error_log.txt для маскировки
-          
+          # Пробуем загрузить с максимальной совместимостью
+          # --insecure: пропускает проверку SSL (если сервер с самоподписанным сертификатом)
+          # --tlsv1.2: явно используем TLS 1.2 (часто помогает)
+          # -4: только IPv4 (GitHub Actions иногда пытается использовать IPv6)
+          # --retry: повторы при сбоях
           curl -L -v \
-          -A "Throne/1.0.12 (Prefer ClashMeta Format)" \
-          -H "x-hwid: c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d" \
-          -H "x-device-os: Windows" \
-          -H "x-device-model: System Product Name/PRIME Z690-P WIFI D4" \
-          -H "x-ver-os: 10.0.26200" \
-          -H "accept-language: en-001,*" \
-          -o error_log.txt \
-          "${{ secrets.VPN_URL }}"
+            -A "Throne/1.0.12 (Prefer ClashMeta Format)" \
+            -H "x-hwid: c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d" \
+            -H "x-device-os: Windows" \
+            -H "x-device-model: System Product Name/PRIME Z690-P WIFI D4" \
+            -H "x-ver-os: 10.0.26200" \
+            -H "accept-language: en-001,*" \
+            --insecure \
+            --tlsv1.2 \
+            -4 \
+            --retry 3 \
+            --retry-delay 10 \
+            -o error_log.txt \
+            "${{ secrets.VPN_URL }}"
 
+          # Если файл пуст — аварийное завершение
           if [ ! -s error_log.txt ]; then
-             echo "Ошибка загрузки!"
-             exit 1
+            echo "❌ Файл пуст, загрузка не удалась"
+            exit 1
           fi
 
       - name: Save Backup
