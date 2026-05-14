@@ -1,4 +1,4 @@
-name: System Backup
+name: Happ Sub Backup
 
 on:
   schedule:
@@ -9,48 +9,109 @@ permissions:
   contents: write
 
 jobs:
-  backup-log:
+  fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Update CA certificates & tools
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch subscription
+        env:
+          SUB_URL: ${{ secrets.VPN_URL }}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ca-certificates curl
+          python3 << 'PYEOF'
+          import requests
+          import uuid
+          import os
+          import sys
+          import urllib3
 
-      - name: Fetch System Data
+          # Отключаем предупреждения SSL
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+          url = os.environ.get("SUB_URL", "").strip()
+          if not url:
+              print("❌ Переменная VPN_URL не задана")
+              sys.exit(1)
+
+          # Новый HWID и маскировка под Happ 3.2.0 (Pixel 7, Android 14)
+          hwid = "a3f1b8d2-7c4e-4e5b-9f2a-1d6c8e3f0a7b"  # свежий UUID4
+          headers = {
+              "User-Agent": "Happ/3.2.0 (Linux; Android 14; Pixel 7 Build/UQ1A.231205.015)",
+              "x-hwid": hwid,
+              "x-device-os": "Android",
+              "x-device-model": "Google Pixel 7",
+              "x-ver-os": "14",
+              "x-device-id": hwid,
+              "x-app-version": "3.2.0",
+              "Accept": "application/octet-stream, */*",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Connection": "keep-alive"
+          }
+
+          # Пробуем запрос с агрессивной SSL-толерантностью
+          try:
+              # Используем отдельный адаптер для принудительного IPv4 и игнора SSL
+              session = requests.Session()
+              # Принудительно IPv4 (опционально)
+              session.mount("https://", requests.adapters.HTTPAdapter(
+                  pool_connections=1, pool_maxsize=1))
+              # Отключаем проверку сертификата и задаём таймауты
+              resp = session.get(
+                  url,
+                  headers=headers,
+                  timeout=(10, 30),  # connect, read
+                  verify=False,      # игнорируем SSL ошибки
+                  allow_redirects=True
+              )
+
+              print(f"Статус: {resp.status_code}")
+              print(f"Заголовки ответа: {dict(resp.headers)}")
+
+              if resp.status_code == 200:
+                  with open("error_log.txt", "wb") as f:
+                      f.write(resp.content)
+                  print("✅ Успешно сохранено в error_log.txt")
+              else:
+                  print(f"⚠️ Код {resp.status_code}, тело (первые 500 байт):")
+                  print(resp.text[:500])
+                  # Если 403/404 – возможно, HWID забанен или URL изменился
+                  sys.exit(1)
+
+          except requests.exceptions.SSLError as e:
+              print(f"🔒 Ошибка SSL даже с verify=False: {e}")
+              # Можно попробовать HTTP вместо HTTPS
+              if url.startswith("https://"):
+                  print("Пробуем HTTP...")
+                  url_http = url.replace("https://", "http://", 1)
+                  resp = requests.get(url_http, headers=headers, timeout=30)
+                  if resp.status_code == 200:
+                      with open("error_log.txt", "wb") as f:
+                          f.write(resp.content)
+                      print("✅ Загружено через HTTP")
+                  else:
+                      print(f"❌ HTTP тоже вернул {resp.status_code}")
+                      sys.exit(1)
+              else:
+                  sys.exit(1)
+          except Exception as e:
+              print(f"❌ Общая ошибка: {e}")
+              sys.exit(1)
+          PYEOF
+
+      - name: Commit and push
         run: |
-          # Пробуем загрузить с максимальной совместимостью
-          # --insecure: пропускает проверку SSL (если сервер с самоподписанным сертификатом)
-          # --tlsv1.2: явно используем TLS 1.2 (часто помогает)
-          # -4: только IPv4 (GitHub Actions иногда пытается использовать IPv6)
-          # --retry: повторы при сбоях
-          curl -L -v \
-            -A "Throne/1.0.12 (Prefer ClashMeta Format)" \
-            -H "x-hwid: c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d" \
-            -H "x-device-os: Windows" \
-            -H "x-device-model: System Product Name/PRIME Z690-P WIFI D4" \
-            -H "x-ver-os: 10.0.26200" \
-            -H "accept-language: en-001,*" \
-            --insecure \
-            --tlsv1.2 \
-            -4 \
-            --retry 3 \
-            --retry-delay 10 \
-            -o error_log.txt \
-            "${{ secrets.VPN_URL }}"
-
-          # Если файл пуст — аварийное завершение
-          if [ ! -s error_log.txt ]; then
-            echo "❌ Файл пуст, загрузка не удалась"
+          if [ -s error_log.txt ]; then
+            git config --global user.name 'Backup Bot'
+            git config --global user.email 'bot@happ.local'
+            git add error_log.txt
+            git diff --quiet && git diff --staged --quiet || (git commit -m "Backup: $(date -u +'%Y-%m-%d %H:%M UTC')" && git push)
+          else
+            echo "Нет данных для коммита"
             exit 1
           fi
-
-      - name: Save Backup
-        run: |
-          git config --global user.name 'Backup Bot'
-          git config --global user.email 'bot@backup.service'
-          git add error_log.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update logs" && git push)
