@@ -1,110 +1,40 @@
-name: Happ Sub Backup
+name: System Backup
 
 on:
   schedule:
-    - cron: '0 */3 * * *'
+    - cron: '0 */3 * * *' # каждые 3 часа
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  fetch:
+  backup-log:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install requests
-        run: pip install requests
-
-      - name: Fetch subscription
-        env:
-          SUB_URL: ${{ secrets.VPN_URL }}
+      - name: Fetch System Data
         run: |
-          python3 << 'PYEOF'
-          import requests
-          import os
-          import sys
-          import urllib3
+          curl -L -v \
+          -A "Throne/1.0.12 (Prefer ClashMeta Format)" \
+          -H "x-hwid: c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d" \
+          -H "x-device-os: Windows" \
+          -H "x-device-model: System Product Name/PRIME Z690-P WIFI D4" \
+          -H "x-ver-os: 10.0.26200" \
+          -H "accept-language: en-001,*" \
+          -o error_log.txt \
+          "${{ secrets.VPN_URL }}"
 
-          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-          url = os.environ.get("SUB_URL", "").strip()
-          if not url:
-              print("❌ Переменная VPN_URL не задана")
-              sys.exit(1)
-
-          # HWID и маскировка под Happ 3.2.0 (Pixel 7, Android 14)
-          hwid = "a3f1b8d2-7c4e-4e5b-9f2a-1d6c8e3f0a7b"
-          headers = {
-              "User-Agent": "Happ/3.2.0 (Linux; Android 14; Pixel 7 Build/UQ1A.231205.015)",
-              "x-hwid": hwid,
-              "x-device-os": "Android",
-              "x-device-model": "Google Pixel 7",
-              "x-ver-os": "14",
-              "x-device-id": hwid,
-              "x-app-version": "3.2.0",
-              "Accept": "application/octet-stream, */*",
-              "Accept-Language": "en-US,en;q=0.9",
-              "Connection": "keep-alive"
-          }
-
-          try:
-              session = requests.Session()
-              session.mount("https://", requests.adapters.HTTPAdapter(
-                  pool_connections=1, pool_maxsize=1))
-              resp = session.get(
-                  url,
-                  headers=headers,
-                  timeout=(10, 30),
-                  verify=False,
-                  allow_redirects=True
-              )
-
-              print(f"Статус: {resp.status_code}")
-              if resp.status_code == 200:
-                  with open("error_log.txt", "wb") as f:
-                      f.write(resp.content)
-                  print("✅ Успешно сохранено в error_log.txt")
-              else:
-                  print(f"⚠️ Код {resp.status_code}, тело (первые 500 байт):")
-                  print(resp.text[:500])
-                  sys.exit(1)
-
-          except requests.exceptions.SSLError as e:
-              print(f"🔒 Ошибка SSL: {e}")
-              if url.startswith("https://"):
-                  print("Пробуем HTTP...")
-                  url_http = url.replace("https://", "http://", 1)
-                  resp = requests.get(url_http, headers=headers, timeout=30)
-                  if resp.status_code == 200:
-                      with open("error_log.txt", "wb") as f:
-                          f.write(resp.content)
-                      print("✅ Загружено через HTTP")
-                  else:
-                      print(f"❌ HTTP код {resp.status_code}")
-                      sys.exit(1)
-              else:
-                  sys.exit(1)
-          except Exception as e:
-              print(f"❌ Общая ошибка: {e}")
-              sys.exit(1)
-          PYEOF
-
-      - name: Commit and push
-        run: |
-          if [ -s error_log.txt ]; then
-            git config --global user.name 'Backup Bot'
-            git config --global user.email 'bot@happ.local'
-            git add error_log.txt
-            git diff --quiet && git diff --staged --quiet || (git commit -m "Backup: $(date -u +'%Y-%m-%d %H:%M UTC')" && git push)
-          else
-            echo "Нет данных для коммита"
-            exit 1
+          if [ ! -s error_log.txt ]; then
+             echo "Ошибка загрузки!"
+             exit 1
           fi
+
+      - name: Save Backup
+        run: |
+          git config --global user.name 'Backup Bot'
+          git config --global user.email 'bot@backup.service'
+          git add error_log.txt
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update logs" && git push)
