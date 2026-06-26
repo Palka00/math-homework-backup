@@ -18,11 +18,11 @@ jobs:
       - name: Fetch System Data
         run: |
           curl -L -v \
-          -A "Throne/1.0.12 (Prefer ClashMeta Format)" \
+          -A "mihomo/1.18.0" \
           -H "x-hwid: c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d" \
-          -H "x-device-os: Windows" \
-          -H "x-device-model: System Product Name/PRIME Z690-P WIFI D4" \
-          -H "x-ver-os: 10.0.26200" \
+          -H "x-device-os: Android" \
+          -H "x-device-model: Pixel 9 XL" \
+          -H "x-ver-os: 17" \
           -H "accept-language: en-001,*" \
           -o error_log.txt \
           "${{ secrets.VPN_URL }}"
