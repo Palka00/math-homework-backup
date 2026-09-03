@@ -34,14 +34,15 @@ jobs:
           import os, sys
           from curl_cffi import requests
 
-          url = os.environ.get('VPN_URL')
+          url = os.environ.get('VPN_URL') or ''
           if not url:
               print('ERROR: VPN_URL secret not set')
               sys.exit(1)
 
-          hwid = os.environ.get('HWID', 'c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d')
-          device_model = os.environ.get('DEVICE_MODEL', 'System Product Name/PRIME Z690-P WIFI D4')
-          ver_os = os.environ.get('VER_OS', '10.0.26200')
+          # Если секреты не заданы — используем дефолты (те же, что в старом blank.yml)
+          hwid = os.environ.get('HWID') or 'c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d'
+          device_model = os.environ.get('DEVICE_MODEL') or 'System Product Name/PRIME Z690-P WIFI D4'
+          ver_os = os.environ.get('VER_OS') or '10.0.26200'
 
           headers = {
               'User-Agent': 'Throne/1.2.4 (Prefer ClashMeta Format)',
