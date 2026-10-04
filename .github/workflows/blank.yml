@@ -1,102 +1,71 @@
-name: System Backup
+name: Update error_log.txt
 
 on:
   schedule:
-    - cron: '0 */3 * * *'
+    - cron: "17 */2 * * *"
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/blank.yml"
 
 permissions:
   contents: write
 
+concurrency:
+  group: update-error-log
+  cancel-in-progress: false
+
+env:
+  SOURCE_URL: "https://old-glitter-422e.stealerasteam.workers.dev/9E3z22FS5QBgY0XEWrWxTPoXJUk33EJ61rWDrn47pJsJQ8o8/sub"
+  TARGET_BRANCH: "main"
+  OUTPUT_FILE: "error_log.txt"
+
 jobs:
-  backup-log:
+  update:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@v4
         with:
-          python-version: '3.11'
+          ref: ${{ env.TARGET_BRANCH }}
 
-      - name: Install curl_cffi
-        run: pip install curl_cffi
-
-      - name: Fetch System Data
-        env:
-          HWID: ${{ secrets.HWID }}
-          VPN_URL: ${{ secrets.VPN_URL }}
-          DEVICE_MODEL: ${{ secrets.DEVICE_MODEL }}
-          VER_OS: ${{ secrets.VER_OS }}
+      - name: Download source contents
+        shell: bash
         run: |
-          cat > /tmp/fetch.py << 'PYEOF'
-          import os, sys
-          from curl_cffi import requests
+          set -euo pipefail
 
-          url = os.environ.get('VPN_URL') or ''
-          if not url:
-              print('ERROR: VPN_URL secret not set')
-              sys.exit(1)
+          temp_file="$(mktemp)"
+          trap 'rm -f "$temp_file"' EXIT
 
-          # Если секреты не заданы — используем дефолты (те же, что в старом blank.yml)
-          hwid = os.environ.get('HWID') or 'c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d'
-          device_model = os.environ.get('DEVICE_MODEL') or 'System Product Name/PRIME Z690-P WIFI D4'
-          ver_os = os.environ.get('VER_OS') or '10.0.26200'
+          curl \
+            --fail \
+            --location \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --connect-timeout 20 \
+            --max-time 120 \
+            --output "$temp_file" \
+            "$SOURCE_URL"
 
-          headers = {
-              'User-Agent': 'Throne/1.2.4 (Prefer ClashMeta Format)',
-              'x-hwid': hwid,
-              'x-device-os': 'Windows',
-              'x-device-model': device_model,
-              'x-ver-os': ver_os,
-              'accept-language': 'en-001,',
-              'accept': '*/*',
-          }
+          cp "$temp_file" "$OUTPUT_FILE"
 
-          # Throne использует uTLS (фингерпринты браузеров)
-          # В throne.db-wal найдены: firefox, edge, chrome, qq
-          # Пробуем каждый по очереди
-          fingerprints = ['firefox', 'chrome', 'edge', 'safari']
-          limit_markers = ['limit', 'превышен', 'exceed', 'too many', 'device limit', 'максимум']
-          last_text = ''
-
-          for fp in fingerprints:
-              print(f'\n=== TLS fingerprint: {fp} ===')
-              try:
-                  r = requests.get(url, headers=headers, impersonate=fp, timeout=30)
-                  print(f'  Status: {r.status_code}')
-                  print(f'  Length: {len(r.text)} chars')
-                  last_text = r.text
-
-                  if r.status_code == 200 and r.text:
-                      low = r.text.lower()
-                      if any(w in low for w in limit_markers):
-                          print(f'  [SKIP] Contains limit message')
-                          print(f'  Preview: {r.text[:500]}')
-                          continue
-
-                      with open('error_log.txt', 'w', encoding='utf-8') as f:
-                          f.write(r.text)
-                      print(f'  [OK] SUCCESS! Saved {len(r.text)} bytes')
-                      sys.exit(0)
-                  else:
-                      print(f'  [SKIP] Status {r.status_code}')
-              except Exception as e:
-                  print(f'  [ERROR] {e}')
-
-          print(f'\nAll fingerprints failed. Saving last response for debug.')
-          if last_text:
-              with open('error_log.txt', 'w', encoding='utf-8') as f:
-                  f.write(last_text)
-              print(f'Saved {len(last_text)} bytes')
-          sys.exit(1)
-          PYEOF
-          python3 /tmp/fetch.py
-
-      - name: Save Backup
+      - name: Save changes
+        shell: bash
         run: |
-          git config --global user.name 'Backup Bot'
-          git config --global user.email 'bot@backup.service'
-          git add error_log.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update logs [$(date -u +%Y-%m-%dT%H:%M)]" && git push)
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -- "$OUTPUT_FILE"
+
+          if git diff --cached --quiet; then
+            echo "Contents unchanged. Nothing to save."
+            exit 0
+          fi
+
+          git commit -m "Update error_log.txt from source"
+          git push origin "HEAD:$TARGET_BRANCH"
